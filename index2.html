@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>筋トレ管理</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <!-- PWA用 -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="apple-touch-icon" href="icon-192.png">
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 15px;
+      max-width: 600px;
+      margin: auto;
+      background: #fafafa;
+    }
+    h1 { text-align: center; }
+    input, select, button {
+      font-size: 16px;
+      padding: 8px;
+    }
+    .form-row {
+      display: flex;
+      gap: 5px;
+      margin-top: 8px;
+      flex-wrap: wrap;
+    }
+    .form-row > * { flex: 1; }
+    .month-nav {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin: 15px 0;
+    }
+    .summary, #exerciseListDisplay {
+      background: #e8f5e9;
+      padding: 10px;
+      border-radius: 8px;
+      margin-bottom: 15px;
+    }
+    .date-block {
+      background: #f0f0f0;
+      padding: 10px;
+      border-radius: 8px;
+      margin-bottom: 15px;
+    }
+    .record {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    button.delete {
+      background: none;
+      border: none;
+      color: #f44336;
+      font-size: 18px;
+      font-weight: bold;
+    }
+    /* カレンダーグラフ */
+    #calendarGraph {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 2px;
+      margin-bottom: 15px;
+    }
+    .day-cell {
+      width: 100%;
+      padding-top: 100%;
+      position: relative;
+      border-radius: 4px;
+      background: #eee;
+    }
+    .day-cell span {
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+
+<h1>筋トレ管理</h1>
+
+<div class="form-row">
+  <input type="text" id="newExercise" placeholder="新しい種目">
+  <button onclick="addExercise()">追加</button>
+</div>
+
+<div id="exerciseListDisplay"></div>
+
+<div class="form-row">
+  <input type="date" id="dateInput">
+  <select id="exerciseSelect"></select>
+</div>
+
+<div class="form-row">
+  <input type="number" id="weightInput" placeholder="重量(kg・自重は空欄)">
+  <input type="number" id="valueInput" placeholder="回数 / 秒">
+  <select id="unitSelect">
+    <option value="回">回</option>
+    <option value="秒">秒</option>
+  </select>
+</div>
+
+<div class="form-row">
+  <input type="number" id="setsInput" placeholder="セット数" min="1" value="1">
+</div>
+
+<div class="form-row">
+  <button onclick="addWorkout()">追加</button>
+</div>
+
+<hr>
+
+<div class="month-nav">
+  <button onclick="changeMonth(-1)">◀</button>
+  <h2 id="monthTitle"></h2>
+  <button onclick="changeMonth(1)">▶</button>
+</div>
+
+<div id="summary" class="summary"></div>
+
+<!-- カレンダーグラフ -->
+<div id="calendarGraph"></div>
+
+<div id="calendar"></div>
+
+<script>
+  // --- データ ---
+  const exerciseList = ["ベンチプレス", "スクワット", "デッドリフト"];
+  let workouts = [];
+  let currentMonth = new Date();
+
+  const exerciseSelect = document.getElementById("exerciseSelect");
+  const dateInput = document.getElementById("dateInput");
+  const weightInput = document.getElementById("weightInput");
+  const valueInput = document.getElementById("valueInput");
+  const unitSelect = document.getElementById("unitSelect");
+  const setsInput = document.getElementById("setsInput");
+  const monthTitle = document.getElementById("monthTitle");
+  const exerciseListDisplay = document.getElementById("exerciseListDisplay");
+
+  function saveData() { localStorage.setItem("workouts", JSON.stringify(workouts)); }
+  function loadData() { workouts = JSON.parse(localStorage.getItem("workouts")||"[]"); }
+  loadData();
+
+  function updateExerciseOptions() {
+    exerciseSelect.innerHTML = '<option value="">種目を選択</option>';
+    exerciseList.forEach(ex=>{
+      const o=document.createElement("option"); o.value=ex; o.textContent=ex; exerciseSelect.appendChild(o);
+    });
+  }
+  updateExerciseOptions();
+
+  function renderExerciseList(){
+    exerciseListDisplay.innerHTML="<strong>登録済み種目</strong><br>";
+    exerciseList.forEach((ex,i)=>{
+      const div=document.createElement("div");
+      div.innerHTML=`${ex} <button onclick="editExercise(${i})">✎</button> <button onclick="deleteExercise(${i})">🗑</button>`;
+      exerciseListDisplay.appendChild(div);
+    });
+  }
+
+  function editExercise(index){
+    const newName = prompt("新しい種目名を入力してください", exerciseList[index]);
+    if(newName && !exerciseList.includes(newName)){
+      workouts.forEach(w=>{if(w.exercise===exerciseList[index]) w.exercise=newName;});
+      exerciseList[index]=newName;
+      saveData(); updateExerciseOptions(); render();
+    }
+  }
+
+  function deleteExercise(index){
+    if(!confirm(`${exerciseList[index]}を削除しますか？\n※この種目の全記録も削除されます`)) return;
+    const nameToDelete=exerciseList[index];
+    workouts=workouts.filter(w=>w.exercise!==nameToDelete);
+    exerciseList.splice(index,1);
+    saveData(); updateExerciseOptions(); render(); renderExerciseList();
+  }
+
+  function addExercise(){
+    const name=document.getElementById("newExercise").value.trim();
+    if(name && !exerciseList.includes(name)){
+      exerciseList.push(name);
+      updateExerciseOptions(); document.getElementById("newExercise").value="";
+      renderExerciseList();
+    }
+  }
+
+  function addWorkout(){
+    const date=dateInput.value, exercise=exerciseSelect.value, value=valueInput.value, unit=unitSelect.value;
+    const weightVal=weightInput.value, sets=setsInput.value?Number(setsInput.value):1;
+    if(!date||!exercise||!value) return;
+    workouts.push({date, exercise, value:Number(value), unit, weight:weightVal?Number(weightVal):null, sets});
+    workouts.sort((a,b)=>new Date(a.date)-new Date(b.date));
+    saveData(); dateInput.value=""; exerciseSelect.value=""; valueInput.value=""; weightInput.value=""; setsInput.value="1"; unitSelect.value="回"; render();
+  }
+
+  function deleteWorkout(i){workouts.splice(i,1); saveData(); render();}
+  function changeMonth(diff){currentMonth.setMonth(currentMonth.getMonth()+diff); render();}
+
+  function render(){
+    renderSummary();
+    renderCalendar();
+    renderExerciseList();
+    renderCalendarGraph();
+  }
+
+  function renderSummary(){
+    const s=document.getElementById("summary");
+    const y=currentMonth.getFullYear(), m=currentMonth.getMonth();
+    const monthData=workouts.filter(w=>new Date(w.date).getFullYear()===y && new Date(w.date).getMonth()===m);
+    if(monthData.length===0){s.textContent="この月の集計データはありません"; return;}
+    const days=new Set(monthData.map(w=>w.date)).size;
+    const byExercise={};
+    monthData.forEach(w=>{if(!byExercise[w.exercise]) byExercise[w.exercise]={回:0,秒:0,sets:0}; byExercise[w.exercise][w.unit]+=w.value; byExercise[w.exercise].sets+=w.sets;});
+    let html=`<strong>📊 月集計</strong><br>・トレーニング日数：${days}日<br>・総セット数：${monthData.reduce((a,w)=>a+w.sets,0)}セット<br><br>`;
+    Object.keys(byExercise).forEach(ex=>{
+      html+=`<strong>${ex}</strong><br>`;
+      if(byExercise[ex]["回"]) html+=`　${byExercise[ex]["回"]}回 × ${byExercise[ex].sets}セット<br>`;
+      if(byExercise[ex]["秒"]) html+=`　${byExercise[ex]["秒"]}秒 × ${byExercise[ex].sets}セット<br>`;
+    });
+    s.innerHTML=html;
+  }
+
+  function renderCalendar(){
+    const c=document.getElementById("calendar"); c.innerHTML="";
+    const y=currentMonth.getFullYear(), m=currentMonth.getMonth(); monthTitle.textContent=`${y}年 ${m+1}月`;
+    const monthData=workouts.filter(w=>new Date(w.date).getFullYear()===y && new Date(w.date).getMonth()===m);
+    const grouped={}; monthData.forEach(w=>{if(!grouped[w.date]) grouped[w.date]=[]; grouped[w.date].push(w);});
+    Object.keys(grouped).sort().forEach(date=>{
+      const b=document.createElement("div"); b.className="date-block"; b.innerHTML=`<h3>${date}</h3>`;
+      grouped[date].forEach(w=>{
+        const text=w.weight!==null?`${w.exercise}：${w.weight}kg × ${w.value}${w.unit} × ${w.sets}セット`:`${w.exercise}：自重 × ${w.value}${w.unit} × ${w.sets}セット`;
+        b.innerHTML+=`<div class="record"><span>${text}</span><button class="delete" onclick="deleteWorkout(${workouts.indexOf(w)})">×</button></div>`;
+      });
+      c.appendChild(b);
+    });
+  }
+
+  // --- カレンダーグラフ ---
+  function renderCalendarGraph(){
+    const graph = document.getElementById("calendarGraph");
+    graph.innerHTML = "";
+    const y = currentMonth.getFullYear(), m = currentMonth.getMonth();
+    const firstDay = new Date(y, m, 1);
+    const lastDay = new Date(y, m+1, 0);
+
+    // 空白セル
+    for(let i=0;i<firstDay.getDay();i++){
+      const empty = document.createElement("div"); empty.className="day-cell"; graph.appendChild(empty);
+    }
+
+    for(let d=1; d<=lastDay.getDate(); d++){
+      const dateStr = `${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+      const dayWorkouts = workouts.filter(w=>w.date===dateStr);
+      const totalSets = dayWorkouts.reduce((sum,w)=>sum+w.sets,0);
+
+      const cell=document.createElement("div");
+      cell.className="day-cell";
+      cell.title=`${dateStr}：${totalSets}セット`;
+      cell.style.background = totalSets===0 ? "#eee" :
+                              totalSets<=3 ? "#a2d5ab" :
+                              totalSets<=6 ? "#4caf50" :
+                              "#1b5e20";
+      cell.innerHTML=`<span>${d}</span>`;
+      graph.appendChild(cell);
+    }
+  }
+
+  render();
+
+  // --- PWA: Service Worker ---
+  if('serviceWorker' in navigator){
+    navigator.serviceWorker.register('sw.js').then(()=>console.log('Service Worker登録成功')).catch(console.error);
+  }
+
+</script>
+</body>
+</html>
